@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>България – анимиран маршрут върху снимка</title>
+  <style>
+    :root{
+      --accent:#e63946;
+      --pin:#111827;
+      --label:#111827;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      display:grid;
+      place-items:center;
+      min-height:100svh;
+      background:#f3f4f6;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+    }
+    .frame{
+      position:relative;
+      width:min(92vw, 980px);
+      /* Keep the image aspect by letting the <img> dictate the height */
+      isolation:isolate;
+      filter: drop-shadow(0 10px 24px rgba(0,0,0,.18));
+      border-radius:18px;
+      overflow:hidden;
+      background:#fff;
+      padding:8px;
+    }
+    .stage{
+      position:relative;
+      width:100%;
+      height:auto;
+    }
+    .stage > img{
+      display:block;
+      width:100%;
+      height:auto;
+      user-select:none;
+      -webkit-user-drag:none;
+    }
+    /* SVG overlay sits on top of the image */
+    .overlay{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      pointer-events:none;
+    }
+    .route{
+      fill:none;
+      stroke:var(--accent);
+      stroke-width:3;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+      stroke-dasharray:1000;
+      stroke-dashoffset:1000;
+      animation:draw 6s ease-in-out forwards;
+    }
+    .city{ fill:var(--pin); }
+    .label{
+      font: 500 12px/1.2 system-ui, sans-serif;
+      fill:var(--label);
+      paint-order: stroke;
+      stroke: #fff;
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+    @keyframes draw{ to{ stroke-dashoffset:0; } }
+    .hint{
+      position:absolute;inset:auto 10px 10px auto;
+      background:rgba(255,255,255,.9);
+      border:1px solid #e5e7eb;
+      padding:8px 10px;
+      border-radius:10px;
+      font-size:12px;
+      color:#111827;
+      z-index:3;
+      backdrop-filter:saturate(1.2) blur(2px);
+    }
+    .hint b{font-weight:700}
+    .credits{
+      margin-top:10px;
+      font-size:12px;
+      color:#6b7280;
+      text-align:center;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame" id="app">
+    <div class="stage">
+      <!-- Your background image -->
+      <img id="bg" src="./марто.jpg" alt="България (силует) – фон" />
+      <!-- SVG overlay -->
+      <svg class="overlay" id="overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <g id="layer"></g>
+      </svg>
+      <div class="hint">Маршрут: <b>Варна → София → Пловдив → Варна</b></div>
+    </div>
+  </div>
+  <div class="credits">Координати и позициониране по реални градове. Границите могат да се донастроят с 4 числа в кода.</div>
+
+  <script>
+    // --- CONFIG ---
+    // Approximate geographic bounding box of Bulgaria.
+    // Tweak these 4 values if you want to nudge the pins relative to the image.
+    const BOUNDS = {
+      west: 22.357,   // най-западна дължина
+      east: 28.606,   // най-източна дължина
+      south: 41.235,  // най-южна ширина
+      north: 44.216   // най-северна ширина
+    };
+
+    // Cities with real lat/lon
+    const cities = [
+      { name: "София",   lat: 42.6977, lon: 23.3219 },
+      { name: "Пловдив", lat: 42.1354, lon: 24.7453 },
+      { name: "Варна",   lat: 43.2141, lon: 27.9147 }
+    ];
+
+    // Route order (indexes into the cities array) – Varna → Sofia → Plovdiv → Varna
+    const routeOrder = [2, 0, 1, 2];
+
+    // --- LOGIC ---
+    const overlay = document.getElementById('overlay');
+    const layer = document.getElementById('layer');
+    const bg = document.getElementById('bg');
+
+    // Convert lon/lat to normalized [0..1] x,y inside the BOUNDS
+    function project(lon, lat){
+      const x = (lon - BOUNDS.west) / (BOUNDS.east - BOUNDS.west);
+      const y = 1 - (lat - BOUNDS.south) / (BOUNDS.north - BOUNDS.south);
+      return { x, y };
+    }
+
+    // Build the overlay once the image knows its size
+    function draw(){
+      const w = bg.naturalWidth || bg.width;
+      const h = bg.naturalHeight || bg.height;
+      if(!w || !h) return;
+
+      overlay.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      // Project city positions
+      const points = cities.map(c => {
+        const p = project(c.lon, c.lat);
+        return { ...c, x: p.x * w, y: p.y * h };
+      });
+
+      // Clear
+      layer.innerHTML = "";
+
+      // Labels offset helper
+      const labelOffset = (name)=>{
+        if(name === "Варна") return {dx: 8, dy: -8};
+        if(name === "София") return {dx: 8, dy: -8};
+        if(name === "Пловдив") return {dx: 8, dy: -8};
+        return {dx: 8, dy: -8};
+      };
+
+      // Draw pins + labels
+      for(const p of points){
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("class","city");
+        c.setAttribute("cx", p.x);
+        c.setAttribute("cy", p.y);
+        c.setAttribute("r", 6);
+        layer.appendChild(c);
+
+        const {dx,dy} = labelOffset(p.name);
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("class","label");
+        t.setAttribute("x", p.x + dx);
+        t.setAttribute("y", p.y + dy);
+        t.textContent = p.name;
+        layer.appendChild(t);
+      }
+
+      // Build a smooth route path through routeOrder
+      const pathPts = routeOrder.map(i => points[i]);
+      // Create a simple smoothed polyline using quadratic curves through midpoints
+      let d = `M ${pathPts[0].x} ${pathPts[0].y}`;
+      for(let i=1;i<pathPts.length;i++){
+        const p0 = pathPts[i-1], p1 = pathPts[i];
+        const mx = (p0.x + p1.x)/2, my = (p0.y + p1.y)/2;
+        d += ` Q ${p0.x} ${p0.y} ${mx} ${my}`;
+      }
+      // Finish with a curve into the final point itself for a cleaner look
+      const last = pathPts[pathPts.length-1];
+      d += ` T ${last.x} ${last.y}`;
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class","route");
+      path.setAttribute("d", d);
+      layer.appendChild(path);
+    }
+
+    if (bg.complete) draw();
+    else bg.addEventListener('load', draw);
+    window.addEventListener('resize', ()=>{
+      // Keep the viewBox mapped to the intrinsic size; SVG scales automatically with CSS
+      // No recomputation needed on resize.
+    });
+  </script>
+</body>
+</html>
